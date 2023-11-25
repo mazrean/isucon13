@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -411,7 +409,7 @@ func moderateHandler(c echo.Context) error {
 var livecommentCache = isucache.NewMap[int64, Livecomment]("livecomment")
 
 func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel LivecommentModel) (Livecomment, error) {
-	if livecomment, ok := livecommentCache.Load(livecommentModel.ID); ok {
+	/*if livecomment, ok := livecommentCache.Load(livecommentModel.ID); ok {
 		var image []byte
 		if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.User.ID); err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
@@ -436,7 +434,7 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 		livecomment.Livestream.Owner.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
 
 		return livecomment, nil
-	}
+	}*/
 
 	commentOwnerModel := UserModel{}
 	if err := tx.GetContext(ctx, &commentOwnerModel, "SELECT * FROM users WHERE id = ?", livecommentModel.UserID); err != nil {
@@ -465,7 +463,7 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 		CreatedAt:  livecommentModel.CreatedAt,
 	}
 
-	livecommentCache.Store(livecommentModel.ID, livecomment)
+	//livecommentCache.Store(livecommentModel.ID, livecomment)
 
 	return livecomment, nil
 }
