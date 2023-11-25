@@ -2,15 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
+	isucache "github.com/mazrean/isucon-go-tools/cache"
 )
 
 type ReactionModel struct {
@@ -141,7 +146,47 @@ func postReactionHandler(c echo.Context) error {
 	return c.JSON(http.StatusCreated, reaction)
 }
 
+var reactionCache = isucache.NewMap[int64, Reaction]("reaction")
+
 func fillReactionResponse(ctx context.Context, tx *sqlx.Tx, reactionModel ReactionModel) (Reaction, error) {
+	if reaction, ok := reactionCache.Load(reactionModel.ID); ok {
+		if hash, ok := imageHashCache.Load(reactionModel.UserID); ok {
+			reaction.User.IconHash = hash
+		} else {
+			var image []byte
+			if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", reaction.User.ID); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					return Reaction{}, err
+				}
+				image, err = os.ReadFile(fallbackImage)
+				if err != nil {
+					return Reaction{}, err
+				}
+			}
+			reaction.User.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+			imageHashCache.Store(reactionModel.UserID, reaction.User.IconHash)
+		}
+
+		if hash, ok := imageHashCache.Load(reaction.Livestream.Owner.ID); ok {
+			reaction.Livestream.Owner.IconHash = hash
+		} else {
+			var image []byte
+			if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", reaction.Livestream.Owner.ID); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					return Reaction{}, err
+				}
+				image, err = os.ReadFile(fallbackImage)
+				if err != nil {
+					return Reaction{}, err
+				}
+			}
+			reaction.Livestream.Owner.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+			imageHashCache.Store(reaction.Livestream.Owner.ID, reaction.Livestream.Owner.IconHash)
+		}
+
+		return reaction, nil
+	}
+
 	userModel := UserModel{}
 	if err := tx.GetContext(ctx, &userModel, "SELECT * FROM users WHERE id = ?", reactionModel.UserID); err != nil {
 		return Reaction{}, err
@@ -167,6 +212,8 @@ func fillReactionResponse(ctx context.Context, tx *sqlx.Tx, reactionModel Reacti
 		Livestream: livestream,
 		CreatedAt:  reactionModel.CreatedAt,
 	}
+
+	reactionCache.Store(reactionModel.ID, reaction)
 
 	return reaction, nil
 }
