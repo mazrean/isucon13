@@ -160,6 +160,11 @@ func initIcon() error {
 		return err
 	}
 
+	err = os.RemoveAll(iconPath)
+	if err != nil {
+		return err
+	}
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
