@@ -491,9 +491,17 @@ var livestreamTagCache *sc.Cache[int64, []Tag]
 func init() {
 	var err error
 	livestreamTagCache, err = isucache.New("livestreamTagCache", func(ctx context.Context, key int64) ([]Tag, error) {
-		var tags []Tag
-		if err := dbConn.SelectContext(ctx, &tags, "SELECT tags.* FROM livestream_tags JOIN tags ON livestream_tags.tag_id = tags.id WHERE livestream_tags.livestream_id = ?", key); err != nil {
+		var tagModels []TagModel
+		if err := dbConn.SelectContext(ctx, &tagModels, "SELECT tags.* FROM livestream_tags JOIN tags ON livestream_tags.tag_id = tags.id WHERE livestream_tags.livestream_id = ?", key); err != nil {
 			return nil, err
+		}
+
+		tags := make([]Tag, 0, len(tagModels))
+		for _, tagModel := range tagModels {
+			tags = append(tags, Tag{
+				ID:   tagModel.ID,
+				Name: tagModel.Name,
+			})
 		}
 
 		return tags, nil
