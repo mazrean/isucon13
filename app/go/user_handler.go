@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
+	isucache "github.com/mazrean/isucon-go-tools/cache"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -105,6 +105,12 @@ func getIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
 	}
 
+	if hash, ok := imageHashCache.Load(user.ID); ok {
+		if c.Request().Header.Get("If-None-Match") == hash {
+			return c.NoContent(http.StatusNotModified)
+		}
+	}
+
 	var image []byte
 	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", user.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -117,105 +123,7 @@ func getIconHandler(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/jpeg", image)
 }
 
-const (
-	iconPath        = "/home/isucon/webapp/public/icon"
-	initialIconPath = "/home/isucon/webapp/public/initial_icon"
-)
-
-func initIcon() error {
-	if _, err := os.Stat(initialIconPath); err != nil {
-		err := os.MkdirAll(initialIconPath, 0755)
-		if err != nil {
-			return fmt.Errorf("failed to create initial icon directory: %w", err)
-		}
-
-		var initialIcons []struct {
-			Name  string `db:"name"`
-			Image []byte `db:"image"`
-		}
-		err = dbConn.Select(&initialIcons, "SELECT users.name, icons.image FROM users LEFT JOIN icons ON users.id = icons.user_id")
-		if err != nil {
-			return fmt.Errorf("failed to get initial icons: %w", err)
-		}
-
-		for _, icon := range initialIcons {
-			if icon.Image == nil {
-				err = func() error {
-					f, err := os.Open(fallbackImage)
-					if err != nil {
-						return fmt.Errorf("failed to open fallback image: %w", err)
-					}
-					defer f.Close()
-
-					dst, err := os.Create(initialIconPath + "/" + icon.Name + ".jpg")
-					if err != nil {
-						return fmt.Errorf("failed to write initial icon: %w", err)
-					}
-					defer dst.Close()
-
-					_, err = io.Copy(dst, f)
-					if err != nil {
-						return fmt.Errorf("failed to write initial icon: %w", err)
-					}
-
-					return nil
-				}()
-			} else {
-				err = os.WriteFile(initialIconPath+"/"+icon.Name+".jpg", icon.Image, 0644)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to write initial icon: %w", err)
-			}
-		}
-	}
-
-	entries, err := os.ReadDir(initialIconPath)
-	if err != nil {
-		return err
-	}
-
-	err = os.RemoveAll(iconPath)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(iconPath, 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create icon directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		err := func() error {
-			dst, err := os.Create(iconPath + "/" + entry.Name())
-			if err != nil {
-				return err
-			}
-			defer dst.Close()
-
-			src, err := os.Open(initialIconPath + "/" + entry.Name())
-			if err != nil {
-				return err
-			}
-			defer src.Close()
-
-			_, err = io.Copy(dst, src)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}()
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
+var imageHashCache = isucache.NewMap[int64, string]("image_hash")
 
 func postIconHandler(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -255,16 +163,8 @@ func postIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted icon id: "+err.Error())
 	}
 
-	f, err := os.OpenFile(iconPath+"/"+sess.Values[defaultUsernameKey].(string)+".jpg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to open icon file: "+err.Error())
-	}
-	defer f.Close()
-
-	_, err = f.Write(req.Image)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
-	}
+	iconHash := sha256.Sum256(req.Image)
+	imageHashCache.Store(userID, fmt.Sprintf("%x", iconHash))
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
@@ -375,23 +275,6 @@ func registerHandler(c echo.Context) error {
 	user, err := fillUserResponse(ctx, tx, userModel)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill user: "+err.Error())
-	}
-
-	f, err := os.Open(fallbackImage)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to open fallback image: "+err.Error())
-	}
-	defer f.Close()
-
-	dst, err := os.Create(iconPath + "/" + req.Name + ".jpg")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
-	}
-	defer dst.Close()
-
-	_, err = io.Copy(dst, f)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -544,6 +427,7 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		}
 	}
 	iconHash := sha256.Sum256(image)
+	imageHashCache.Store(userModel.ID, fmt.Sprintf("%x", iconHash))
 
 	user := User{
 		ID:          userModel.ID,
