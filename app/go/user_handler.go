@@ -87,6 +87,8 @@ type PostIconResponse struct {
 	ID int64 `json:"id"`
 }
 
+var userCache = isucache.NewMap[string, int64]("user")
+
 func getIconHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -98,22 +100,28 @@ func getIconHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var user UserModel
-	if err := tx.GetContext(ctx, &user, "SELECT * FROM users WHERE name = ?", username); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, "not found user that has the given username")
+	userID, ok := userCache.Load(username)
+	if !ok {
+		var user UserModel
+		if err := tx.GetContext(ctx, &user, "SELECT * FROM users WHERE name = ?", username); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return echo.NewHTTPError(http.StatusNotFound, "not found user that has the given username")
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
+
+		userCache.Store(username, user.ID)
+		userID = user.ID
 	}
 
-	if hash, ok := imageHashCache.Load(user.ID); ok {
+	if hash, ok := imageHashCache.Load(userID); ok {
 		if c.Request().Header.Get("If-None-Match") == hash {
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
 
 	var image []byte
-	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", user.ID); err != nil {
+	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.File(fallbackImage)
 		} else {
@@ -294,6 +302,8 @@ func registerHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill user: "+err.Error())
 	}
+
+	userCache.Store(user.Name, user.ID)
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
