@@ -13,6 +13,8 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
+	isucache "github.com/mazrean/isucon-go-tools/cache"
+	"github.com/motoki317/sc"
 )
 
 type ReserveLivestreamRequest struct {
@@ -484,6 +486,23 @@ func getLivecommentReportsHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, reports)
 }
 
+var livestreamTagCache *sc.Cache[int64, []Tag]
+
+func init() {
+	var err error
+	livestreamTagCache, err = isucache.New("livestreamTagCache", func(ctx context.Context, key int64) ([]Tag, error) {
+		var tags []Tag
+		if err := dbConn.SelectContext(ctx, &tags, "SELECT tags.* FROM livestream_tags JOIN tags ON livestream_tags.tag_id = tags.id WHERE livestream_tags.livestream_id = ?", key); err != nil {
+			return nil, err
+		}
+
+		return tags, nil
+	}, time.Hour, time.Hour)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func fillLivestreamResponse(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) (Livestream, error) {
 	ownerModel := UserModel{}
 	if err := tx.GetContext(ctx, &ownerModel, "SELECT * FROM users WHERE id = ?", livestreamModel.UserID); err != nil {
@@ -494,22 +513,9 @@ func fillLivestreamResponse(ctx context.Context, tx *sqlx.Tx, livestreamModel Li
 		return Livestream{}, err
 	}
 
-	var livestreamTagModels []*LivestreamTagModel
-	if err := tx.SelectContext(ctx, &livestreamTagModels, "SELECT * FROM livestream_tags WHERE livestream_id = ?", livestreamModel.ID); err != nil {
+	tags, err := livestreamTagCache.Get(ctx, livestreamModel.ID)
+	if err != nil {
 		return Livestream{}, err
-	}
-
-	tags := make([]Tag, len(livestreamTagModels))
-	for i := range livestreamTagModels {
-		tagModel := TagModel{}
-		if err := tx.GetContext(ctx, &tagModel, "SELECT * FROM tags WHERE id = ?", livestreamTagModels[i].TagID); err != nil {
-			return Livestream{}, err
-		}
-
-		tags[i] = Tag{
-			ID:   tagModel.ID,
-			Name: tagModel.Name,
-		}
 	}
 
 	livestream := Livestream{
