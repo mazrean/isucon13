@@ -13,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
+	isucache "github.com/mazrean/isucon-go-tools/cache"
 )
 
 type PostLivecommentRequest struct {
@@ -405,7 +406,13 @@ func moderateHandler(c echo.Context) error {
 	})
 }
 
+var livecommentCache = isucache.NewMap[int64, Livecomment]("livecomment")
+
 func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel LivecommentModel) (Livecomment, error) {
+	if livecomment, ok := livecommentCache.Load(livecommentModel.ID); ok {
+		return livecomment, nil
+	}
+
 	commentOwnerModel := UserModel{}
 	if err := tx.GetContext(ctx, &commentOwnerModel, "SELECT * FROM users WHERE id = ?", livecommentModel.UserID); err != nil {
 		return Livecomment{}, err
@@ -432,6 +439,8 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 		Tip:        livecommentModel.Tip,
 		CreatedAt:  livecommentModel.CreatedAt,
 	}
+
+	livecommentCache.Store(livecommentModel.ID, livecomment)
 
 	return livecomment, nil
 }
