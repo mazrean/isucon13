@@ -140,7 +140,24 @@ func initIcon() error {
 
 		for _, icon := range initialIcons {
 			if icon.Image == nil {
-				err = os.WriteFile(initialIconPath+"/"+icon.Name+".jpg", []byte(fallbackImage), 0644)
+				err = func() error {
+					f, err := os.Open(fallbackImage)
+					if err != nil {
+						return fmt.Errorf("failed to open fallback image: %w", err)
+					}
+
+					dst, err := os.Create(initialIconPath + "/" + icon.Name + ".jpg")
+					if err != nil {
+						return fmt.Errorf("failed to write initial icon: %w", err)
+					}
+
+					_, err = io.Copy(dst, f)
+					if err != nil {
+						return fmt.Errorf("failed to write initial icon: %w", err)
+					}
+
+					return nil
+				}()
 			} else {
 				err = os.WriteFile(initialIconPath+"/"+icon.Name+".jpg", icon.Image, 0644)
 			}
@@ -352,7 +369,19 @@ func registerHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill user: "+err.Error())
 	}
 
-	err = os.WriteFile(iconPath+"/"+user.Name+".jpg", []byte(fallbackImage), 0644)
+	f, err := os.Open(fallbackImage)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to open fallback image: "+err.Error())
+	}
+	defer f.Close()
+
+	dst, err := os.Create(iconPath + "/" + req.Name + ".jpg")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, f)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
 	}
