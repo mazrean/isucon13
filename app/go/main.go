@@ -118,6 +118,12 @@ func initializeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: "+err.Error())
 	}
 
+	err := initLivestreamTagCache()
+	if err != nil {
+		c.Logger().Warnf("failed to initLivestreamTagCache: %s", err.Error())
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: "+err.Error())
+	}
+
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "golang",
@@ -205,6 +211,12 @@ func main() {
 		os.Exit(1)
 	}
 	powerDNSSubdomainAddress = subdomainAddr
+
+	err = initLivestreamTagCache()
+	if err != nil {
+		e.Logger.Errorf("failed to initLivestreamTagCache: %v", err)
+		os.Exit(1)
+	}
 
 	// HTTPサーバ起動
 	listenAddr := net.JoinHostPort("", strconv.Itoa(listenPort))

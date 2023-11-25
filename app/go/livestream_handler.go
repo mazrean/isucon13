@@ -14,7 +14,6 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	isucache "github.com/mazrean/isucon-go-tools/cache"
-	"github.com/motoki317/sc"
 )
 
 type ReserveLivestreamRequest struct {
@@ -159,7 +158,17 @@ func reserveLivestreamHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert livestream tag: "+err.Error())
 		}
 	}
-	livestreamTagCache.Forget(livestreamID)
+
+	var tagModels []TagModel
+	if err := tx.SelectContext(ctx, &tagModels, "SELECT tags.* FROM livestream_tags JOIN tags ON livestream_tags.tag_id = tags.id WHERE livestream_tags.livestream_id = ?", livestreamID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get tags: "+err.Error())
+	}
+
+	tags := make([]Tag, 0, len(tagModels))
+	for _, tagModel := range tagModels {
+		tags = append(tags, Tag(tagModel))
+	}
+	livestreamTagCache.Store(livestreamID, tags)
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
@@ -487,14 +496,18 @@ func getLivecommentReportsHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, reports)
 }
 
-var livestreamTagCache *sc.Cache[int64, []Tag]
+var livestreamTagCache = isucache.NewMap[int64, []Tag]("livestream_tag_cache")
 
-func init() {
-	var err error
-	livestreamTagCache, err = isucache.New("livestreamTagCache", func(ctx context.Context, key int64) ([]Tag, error) {
+func initLivestreamTagCache() error {
+	var livestreams []LivestreamModel
+	if err := dbConn.Select(&livestreams, "SELECT * FROM livestreams"); err != nil {
+		return fmt.Errorf("failed to get livestreams: %w", err)
+	}
+
+	for _, livestream := range livestreams {
 		var tagModels []TagModel
-		if err := dbConn.SelectContext(ctx, &tagModels, "SELECT tags.* FROM livestream_tags JOIN tags ON livestream_tags.tag_id = tags.id WHERE livestream_tags.livestream_id = ?", key); err != nil {
-			return nil, err
+		if err := dbConn.Select(&tagModels, "SELECT tags.* FROM livestream_tags JOIN tags ON livestream_tags.tag_id = tags.id WHERE livestream_tags.livestream_id = ?", livestream.ID); err != nil {
+			return fmt.Errorf("failed to get tags: %w", err)
 		}
 
 		tags := make([]Tag, 0, len(tagModels))
@@ -502,11 +515,10 @@ func init() {
 			tags = append(tags, Tag(tagModel))
 		}
 
-		return tags, nil
-	}, time.Hour, time.Hour)
-	if err != nil {
-		panic(err)
+		livestreamTagCache.Store(livestream.ID, tags)
 	}
+
+	return nil
 }
 
 func fillLivestreamResponse(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) (Livestream, error) {
@@ -519,9 +531,9 @@ func fillLivestreamResponse(ctx context.Context, tx *sqlx.Tx, livestreamModel Li
 		return Livestream{}, err
 	}
 
-	tags, err := livestreamTagCache.Get(ctx, livestreamModel.ID)
-	if err != nil {
-		return Livestream{}, err
+	tags, ok := livestreamTagCache.Load(livestreamModel.ID)
+	if !ok {
+		return Livestream{}, errors.New("failed to load livestream tags")
 	}
 
 	livestream := Livestream{
