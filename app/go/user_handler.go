@@ -438,24 +438,34 @@ func verifyUserSession(c echo.Context) error {
 	return nil
 }
 
+var dafaultIconHash string
+
+func init() {
+	image, err := os.ReadFile(fallbackImage)
+	if err != nil {
+		return
+	}
+
+	iconHash := sha256.Sum256(image)
+	dafaultIconHash = fmt.Sprintf("%x", iconHash)
+}
+
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
 	themeModel := ThemeModel{}
 	if err := tx.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userModel.ID); err != nil {
 		return User{}, err
 	}
 
+	var iconHash string
 	var image []byte
 	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userModel.ID); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return User{}, err
 		}
-		image, err = os.ReadFile(fallbackImage)
-		if err != nil {
-			return User{}, err
-		}
+		iconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+		imageHashCache.Store(userModel.ID, fmt.Sprintf("%x", iconHash))
+
 	}
-	iconHash := sha256.Sum256(image)
-	imageHashCache.Store(userModel.ID, fmt.Sprintf("%x", iconHash))
 
 	user := User{
 		ID:          userModel.ID,
