@@ -175,6 +175,23 @@ func postIconHandler(c echo.Context) error {
 	})
 }
 
+func initIconCache() error {
+	var icons []struct {
+		UserID int64  `db:"user_id"`
+		Image  []byte `db:"image"`
+	}
+	if err := dbConn.Select(&icons, "SELECT user_id, image FROM icons"); err != nil {
+		return fmt.Errorf("failed to select icons: %w", err)
+	}
+
+	for _, icon := range icons {
+		iconHash := sha256.Sum256(icon.Image)
+		imageHashCache.Store(icon.UserID, fmt.Sprintf("%x", iconHash))
+	}
+
+	return nil
+}
+
 func getMeHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 
