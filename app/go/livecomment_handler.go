@@ -199,7 +199,7 @@ func postLivecommentHandler(c echo.Context) error {
 
 	// スパム判定
 	var checker int
-	if err := tx.GetContext(ctx, &checker, "SELECT 1 FROM ng_words WHERE user_id = ? AND livestream_id = ? AND ? LIKE CONCAT('%', word, '%')", livestreamModel.UserID, livestreamModel.ID, req.Comment); err != nil && errors.Is(err, sql.ErrNoRows) {
+	if err := tx.GetContext(ctx, &checker, "SELECT 1 FROM ng_words WHERE user_id = ? AND livestream_id = ? AND ? LIKE CONCAT('%', word, '%')", livestreamModel.UserID, livestreamModel.ID, req.Comment); !errors.Is(err, sql.ErrNoRows) {
 		return echo.NewHTTPError(http.StatusBadRequest, "このコメントがスパム判定されました")
 	} else if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to check spam: "+err.Error())
