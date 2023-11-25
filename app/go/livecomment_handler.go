@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -409,32 +411,43 @@ func moderateHandler(c echo.Context) error {
 var livecommentCache = isucache.NewMap[int64, Livecomment]("livecomment")
 
 func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel LivecommentModel) (Livecomment, error) {
-	/*if livecomment, ok := livecommentCache.Load(livecommentModel.ID); ok {
-		var image []byte
-		if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.User.ID); err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return Livecomment{}, err
+	if livecomment, ok := livecommentCache.Load(livecommentModel.ID); ok {
+		if hash, ok := imageHashCache.Load(livecomment.User.ID); ok {
+			livecomment.User.IconHash = hash
+		} else {
+			var image []byte
+			if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.User.ID); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					return Livecomment{}, err
+				}
+				image, err = os.ReadFile(fallbackImage)
+				if err != nil {
+					return Livecomment{}, err
+				}
 			}
-			image, err = os.ReadFile(fallbackImage)
-			if err != nil {
-				return Livecomment{}, err
-			}
+			livecomment.User.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+			imageHashCache.Store(livecomment.User.ID, livecomment.User.IconHash)
 		}
-		livecomment.User.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
 
-		if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.Livestream.Owner.ID); err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return Livecomment{}, err
+		if hash, ok := imageHashCache.Load(livecomment.Livestream.Owner.ID); ok {
+			livecomment.Livestream.Owner.IconHash = hash
+		} else {
+			var image []byte
+			if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.Livestream.Owner.ID); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					return Livecomment{}, err
+				}
+				image, err = os.ReadFile(fallbackImage)
+				if err != nil {
+					return Livecomment{}, err
+				}
 			}
-			image, err = os.ReadFile(fallbackImage)
-			if err != nil {
-				return Livecomment{}, err
-			}
+			livecomment.Livestream.Owner.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+			imageHashCache.Store(livecomment.Livestream.Owner.ID, livecomment.Livestream.Owner.IconHash)
 		}
-		livecomment.Livestream.Owner.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
 
 		return livecomment, nil
-	}*/
+	}
 
 	commentOwnerModel := UserModel{}
 	if err := tx.GetContext(ctx, &commentOwnerModel, "SELECT * FROM users WHERE id = ?", livecommentModel.UserID); err != nil {
