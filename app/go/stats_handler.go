@@ -87,17 +87,68 @@ func getUserStatisticsHandler(c echo.Context) error {
 	}
 
 	// ランク算出
-	var ranking []UserRankingEntry
+	var users []*UserModel
+	if err := tx.SelectContext(ctx, &users, "SELECT * FROM users"); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get users: "+err.Error())
+	}
+
+	var tipSum []struct {
+		Username string `db:"name"`
+		Tip      int64  `db:"tip"`
+	}
 	query := `
-		SELECT u.name, (COUNT(*) + IFNULL(SUM(l2.tip), 0)) AS score FROM users u
+		SELECT u.name, IFNULL(SUM(l2.tip), 0) AS tip FROM users u
 		INNER JOIN livestreams l ON l.user_id = u.id	
 		INNER JOIN livecomments l2 ON l2.livestream_id = l.id
 		INNER JOIN reactions r ON r.livestream_id = l.id
 		GROUP BY u.id
 		ORDER BY score DESC, u.name DESC`
-	if err := tx.SelectContext(ctx, &ranking, query, user.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := tx.SelectContext(ctx, &tipSum, query); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to count scores: "+err.Error())
 	}
+
+	tipSumMap := make(map[string]int64)
+	for _, v := range tipSum {
+		tipSumMap[v.Username] = v.Tip
+	}
+
+	var reactionCount []struct {
+		Username      string `db:"name"`
+		ReactionCount int64  `db:"reaction_count"`
+	}
+	query = `
+		SELECT u.name, COUNT(*) AS tip FROM users u
+		INNER JOIN livestreams l ON l.user_id = u.id	
+		INNER JOIN reactions r ON r.livestream_id = l.id
+		GROUP BY u.id
+		ORDER BY score DESC, u.name DESC`
+	if err := tx.SelectContext(ctx, &reactionCount, query); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to count scores: "+err.Error())
+	}
+
+	reactionCountMap := make(map[string]int64)
+	for _, entry := range reactionCount {
+		reactionCountMap[entry.Username] = entry.ReactionCount
+	}
+
+	var ranking UserRanking
+	for _, user := range users {
+		tipSum, ok := tipSumMap[user.Name]
+		if !ok {
+			tipSum = 0
+		}
+
+		reactionCount, ok := reactionCountMap[user.Name]
+		if !ok {
+			reactionCount = 0
+		}
+
+		ranking = append(ranking, UserRankingEntry{
+			Username: user.Name,
+			Score:    tipSum + reactionCount,
+		})
+	}
+	sort.Sort(ranking)
 
 	var rank int64 = 1
 	for i := len(ranking) - 1; i >= 0; i-- {
