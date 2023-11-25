@@ -476,7 +476,7 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 		CreatedAt:  livecommentModel.CreatedAt,
 	}
 
-	//livecommentCache.Store(livecommentModel.ID, livecomment)
+	livecommentCache.Store(livecommentModel.ID, livecomment)
 
 	return livecomment, nil
 }
