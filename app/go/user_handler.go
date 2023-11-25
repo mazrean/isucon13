@@ -145,9 +145,9 @@ func initIcon() error {
 
 		for _, icon := range initialIcons {
 			if icon.Image == nil {
-				err = os.WriteFile(iconPath+"/"+icon.Name+".jpg", []byte(fallbackImage), 0644)
+				err = os.WriteFile(initialIconPath+"/"+icon.Name+".jpg", []byte(fallbackImage), 0644)
 			} else {
-				err = os.WriteFile(iconPath+"/"+icon.Name+".jpg", icon.Image, 0644)
+				err = os.WriteFile(initialIconPath+"/"+icon.Name+".jpg", icon.Image, 0644)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to write initial icon: %w", err)
