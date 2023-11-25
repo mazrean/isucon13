@@ -424,6 +424,17 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 		}
 		livecomment.User.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
 
+		if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.Livestream.Owner.ID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return Livecomment{}, err
+			}
+			image, err = os.ReadFile(fallbackImage)
+			if err != nil {
+				return Livecomment{}, err
+			}
+		}
+		livecomment.Livestream.Owner.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+
 		return livecomment, nil
 	}
 
