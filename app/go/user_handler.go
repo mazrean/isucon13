@@ -145,11 +145,13 @@ func initIcon() error {
 					if err != nil {
 						return fmt.Errorf("failed to open fallback image: %w", err)
 					}
+					defer f.Close()
 
 					dst, err := os.Create(initialIconPath + "/" + icon.Name + ".jpg")
 					if err != nil {
 						return fmt.Errorf("failed to write initial icon: %w", err)
 					}
+					defer dst.Close()
 
 					_, err = io.Copy(dst, f)
 					if err != nil {
