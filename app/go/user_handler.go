@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -116,6 +117,82 @@ func getIconHandler(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/jpeg", image)
 }
 
+const (
+	iconPath        = "/home/isucon/webapp/public/icon"
+	initialIconPath = "/home/isucon/webapp/public/initial_icon"
+)
+
+func initIcon() error {
+	if _, err := os.Stat(initialIconPath); err != nil {
+		err := os.MkdirAll(initialIconPath, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to create initial icon directory: %w", err)
+		}
+
+		var initialIcons []struct {
+			Name  string `db:"name"`
+			Image []byte `db:"image"`
+		}
+		err = dbConn.Select(&initialIcons, "SELECT users.name, icons.image FROM users LEFT JOIN icons ON users.id = icons.user_id")
+		if err != nil {
+			return fmt.Errorf("failed to get initial icons: %w", err)
+		}
+
+		for _, icon := range initialIcons {
+			if icon.Image == nil {
+				err = os.WriteFile(iconPath+"/"+icon.Name+".jpg", []byte(fallbackImage), 0644)
+			} else {
+				err = os.WriteFile(iconPath+"/"+icon.Name+".jpg", icon.Image, 0644)
+			}
+			if err != nil {
+				return fmt.Errorf("failed to write initial icon: %w", err)
+			}
+		}
+	}
+
+	err := os.MkdirAll(iconPath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create icon directory: %w", err)
+	}
+
+	entries, err := os.ReadDir(initialIconPath)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		err := func() error {
+			dst, err := os.Create(iconPath + "/" + entry.Name())
+			if err != nil {
+				return err
+			}
+			defer dst.Close()
+
+			src, err := os.Open(initialIconPath + "/" + entry.Name())
+			if err != nil {
+				return err
+			}
+			defer src.Close()
+
+			_, err = io.Copy(dst, src)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func postIconHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -147,6 +224,11 @@ func postIconHandler(c echo.Context) error {
 	rs, err := tx.ExecContext(ctx, "INSERT INTO icons (user_id, image) VALUES (?, ?)", userID, req.Image)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new user icon: "+err.Error())
+	}
+
+	err = os.WriteFile(iconPath+"/"+sess.Values[defaultUsernameKey].(string)+".jpg", req.Image, 0644)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
 	}
 
 	iconID, err := rs.LastInsertId()
