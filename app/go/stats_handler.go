@@ -88,7 +88,7 @@ func getUserStatisticsHandler(c echo.Context) error {
 
 	// ランク算出
 	var ranking []UserRankingEntry
-	const query = `
+	query := `
 		SELECT u.name, (COUNT(*) + IFNULL(SUM(l2.tip), 0)) AS score FROM users u
 		INNER JOIN livestreams l ON l.user_id = u.id	
 		INNER JOIN livecomments l2 ON l2.livestream_id = l.id
@@ -110,7 +110,7 @@ func getUserStatisticsHandler(c echo.Context) error {
 
 	// リアクション数
 	var totalReactions int64
-	query := `SELECT COUNT(*) FROM users u 
+	query = `SELECT COUNT(*) FROM users u 
     INNER JOIN livestreams l ON l.user_id = u.id 
     INNER JOIN reactions r ON r.livestream_id = l.id
     WHERE u.name = ?
