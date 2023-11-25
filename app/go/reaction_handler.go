@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
