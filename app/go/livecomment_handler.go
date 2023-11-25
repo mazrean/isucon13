@@ -197,28 +197,11 @@ func postLivecommentHandler(c echo.Context) error {
 	}
 
 	// スパム判定
-	var ngwords []*NGWord
-	if err := tx.SelectContext(ctx, &ngwords, "SELECT id, user_id, livestream_id, word FROM ng_words WHERE user_id = ? AND livestream_id = ?", livestreamModel.UserID, livestreamModel.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
-	}
-
-	var hitSpam int
-	for _, ngword := range ngwords {
-		query := `
-		SELECT COUNT(*)
-		FROM
-		(SELECT ? AS text) AS texts
-		INNER JOIN
-		(SELECT CONCAT('%', ?, '%')	AS pattern) AS patterns
-		ON texts.text LIKE patterns.pattern;
-		`
-		if err := tx.GetContext(ctx, &hitSpam, query, req.Comment, ngword.Word); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get hitspam: "+err.Error())
-		}
-		c.Logger().Infof("[hitSpam=%d] comment = %s", hitSpam, req.Comment)
-		if hitSpam >= 1 {
-			return echo.NewHTTPError(http.StatusBadRequest, "このコメントがスパム判定されました")
-		}
+	var checker int
+	if err := tx.SelectContext(ctx, &checker, "SELECT 1 FROM ng_words WHERE user_id = ? AND livestream_id = ? AND ? LIKE CONCAT('%', word, '%')", livestreamModel.UserID, livestreamModel.ID, req.Comment); err != nil && errors.Is(err, sql.ErrNoRows) {
+		return echo.NewHTTPError(http.StatusBadRequest, "このコメントがスパム判定されました")
+	} else if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to check spam: "+err.Error())
 	}
 
 	now := time.Now().Unix()
