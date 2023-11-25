@@ -250,6 +250,11 @@ func postIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new user icon: "+err.Error())
 	}
 
+	iconID, err := rs.LastInsertId()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted icon id: "+err.Error())
+	}
+
 	f, err := os.OpenFile(iconPath+"/"+sess.Values[defaultUsernameKey].(string)+".jpg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to open icon file: "+err.Error())
@@ -259,11 +264,6 @@ func postIconHandler(c echo.Context) error {
 	_, err = f.Write(req.Image)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write icon file: "+err.Error())
-	}
-
-	iconID, err := rs.LastInsertId()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted icon id: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {

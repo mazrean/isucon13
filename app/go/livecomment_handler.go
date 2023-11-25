@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -410,6 +412,18 @@ var livecommentCache = isucache.NewMap[int64, Livecomment]("livecomment")
 
 func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel LivecommentModel) (Livecomment, error) {
 	if livecomment, ok := livecommentCache.Load(livecommentModel.ID); ok {
+		var image []byte
+		if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", livecomment.User.ID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return Livecomment{}, err
+			}
+			image, err = os.ReadFile(fallbackImage)
+			if err != nil {
+				return Livecomment{}, err
+			}
+		}
+		livecomment.User.IconHash = fmt.Sprintf("%x", sha256.Sum256(image))
+
 		return livecomment, nil
 	}
 
