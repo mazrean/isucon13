@@ -123,11 +123,6 @@ const (
 )
 
 func initIcon() error {
-	err := os.MkdirAll(iconPath, 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create icon directory: %w", err)
-	}
-
 	if _, err := os.Stat(initialIconPath); err != nil {
 		err := os.MkdirAll(initialIconPath, 0755)
 		if err != nil {
@@ -163,6 +158,11 @@ func initIcon() error {
 	err = os.RemoveAll(iconPath)
 	if err != nil {
 		return err
+	}
+
+	err = os.MkdirAll(iconPath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create icon directory: %w", err)
 	}
 
 	for _, entry := range entries {
