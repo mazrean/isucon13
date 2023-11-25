@@ -7,7 +7,7 @@ $TTL 3600
     3600   ; ncache
 )
 
-@        0 IN NS ns1.u.isucon.dev.
+@        120 IN NS ns1.u.isucon.dev.
 @        120 IN A  <ISUCON_SUBDOMAIN_ADDRESS>
 ns1      120 IN A  <ISUCON_SUBDOMAIN_ADDRESS>
 pipe     120 IN A  <ISUCON_SUBDOMAIN_ADDRESS>
